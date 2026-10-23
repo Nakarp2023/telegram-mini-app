@@ -255,7 +255,10 @@ def handle_message(message):
     if not admin_notified:
         reply += "\n\nВажно: автоматическое уведомление менеджеру сейчас не подтверждено. "
         reply += "Пожалуйста, напишите напрямую @PropIskaMNG, чтобы не ждать ответа."
-    send(chat_id, reply)
+    if reply.startswith("💰"):
+        send(chat_id, reply, parse_mode="Markdown")
+    else:
+        send(chat_id, reply)
 
 @app.get("/")
 def index():
