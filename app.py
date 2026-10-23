@@ -113,6 +113,9 @@ def handle_message(message):
     text = (message.get("text") or "").strip()
     if not text:
         return
+    if text.startswith("/id"):
+        send(chat_id, f"Ваш Telegram ID: {chat_id}")
+        return
     if text.startswith("/start"):
         send(chat_id,
              "Здравствуйте! Я помощник канала о регистрации в Москве и Московской области.\n\n"
