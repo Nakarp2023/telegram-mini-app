@@ -345,7 +345,7 @@ def handle_message(message):
     if not admin_notified:
         reply += "\n\nВажно: автоматическое уведомление менеджеру сейчас не подтверждено. "
         reply += "Пожалуйста, напишите напрямую @PropIskaMNG, чтобы не ждать ответа."
-    if reply.startswith("💰") or reply.startswith("📋"):
+    if reply.startswith("💰") or reply.startswith("📋") or reply.startswith("⚖️"):
         send(chat_id, reply, parse_mode="Markdown")
     else:
         send(chat_id, reply)
