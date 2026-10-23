@@ -286,7 +286,7 @@ def handle_message(message):
         send(chat_id, f"Заявок сохранено: {leads}\nЧерновиков ожидают решения: {pending}")
         return
     if get_client_state(chat_id) == "citizenship":
-        q = text.lower().replace("ё", "е")
+        q = text.lower().replace("ё", "е").strip()
         if any(k in q for k in ("россия", "рф", "российск", "гражданин рф", "гражданин россии")):
             kind = "rf"
             label = "граждан РФ"
@@ -294,8 +294,13 @@ def handle_message(message):
             kind = "foreign"
             label = "иностранных граждан"
         else:
-            send(chat_id, "Пожалуйста, уточните: гражданин РФ или иностранный гражданин.")
-            return
+            # A country name alone (e.g. Italy or Latvia) indicates non-Russian citizenship for this flow.
+            if len(q) > 1 and not any(k in q for k in ("граждан", "паспорт", "не знаю", "не уверен")):
+                kind = "foreign"
+                label = "иностранных граждан"
+            else:
+                send(chat_id, "Уточните, пожалуйста: у клиента гражданство РФ или другой страны? Можно написать страну гражданства.")
+                return
         clear_client_state(chat_id)
         contract = get_contract_file(kind)
         if contract:
@@ -303,7 +308,7 @@ def handle_message(message):
             if not result.get("ok"):
                 send(chat_id, "Не удалось отправить файл автоматически. Напишите менеджеру @PropIskaMNG — он направит актуальный договор.")
         else:
-            send(chat_id, "Пока файл договора не загружен в бота. Напишите менеджеру @PropIskaMNG, он направит актуальную редакцию.")
+            send(chat_id, "Файл договора пока не загружен в бота. Менеджер @PropIskaMNG направит актуальную редакцию для ознакомления.")
         if ADMIN_ID:
             send(ADMIN_ID, f"📄 Клиент выбрал договор для {label}.\nКлиент ID: {chat_id}\nФайл отправлен клиенту: {'да' if contract else 'нет — файл ещё не сохранён'}")
         return
