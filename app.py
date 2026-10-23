@@ -17,6 +17,30 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 DB_PATH = os.getenv("DB_PATH", "/tmp/propiska_bot.sqlite3")
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+# Render provides RENDER_EXTERNAL_URL automatically. Register the webhook on startup
+# once the bot token and deployment URL are configured.
+def register_webhook():
+    base_url = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if not (BOT_TOKEN and WEBHOOK_SECRET and base_url):
+        logging.info("Webhook not auto-registered: configure bot token, secret, and Render URL.")
+        return
+    try:
+        response = requests.post(
+            f"{TG_API}/setWebhook",
+            json={
+                "url": base_url + "/telegram/webhook",
+                "secret_token": WEBHOOK_SECRET,
+                "allowed_updates": ["message", "callback_query"],
+            },
+            timeout=20,
+        )
+        response.raise_for_status()
+        logging.info("Telegram webhook registration: %s", response.text)
+    except Exception:
+        logging.exception("Could not register Telegram webhook")
+
+register_webhook()
+
 def db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
