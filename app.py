@@ -185,6 +185,27 @@ def create_draft(text):
     conn.close()
     return draft_id
 
+def set_citizenship_pending(user_id):
+    conn = db()
+    conn.execute("CREATE TABLE IF NOT EXISTS client_state (user_id TEXT PRIMARY KEY, state TEXT NOT NULL)")
+    conn.execute("INSERT INTO client_state(user_id,state) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET state=excluded.state",
+                 (str(user_id), "citizenship"))
+    conn.commit()
+    conn.close()
+
+def get_client_state(user_id):
+    conn = db()
+    conn.execute("CREATE TABLE IF NOT EXISTS client_state (user_id TEXT PRIMARY KEY, state TEXT NOT NULL)")
+    row = conn.execute("SELECT state FROM client_state WHERE user_id=?", (str(user_id),)).fetchone()
+    conn.close()
+    return row["state"] if row else None
+
+def clear_client_state(user_id):
+    conn = db()
+    conn.execute("DELETE FROM client_state WHERE user_id=?", (str(user_id),))
+    conn.commit()
+    conn.close()
+
 def handle_message(message):
     chat = message.get("chat", {})
     chat_id = str(chat.get("id", ""))
@@ -233,6 +254,23 @@ def handle_message(message):
         conn.close()
         send(chat_id, f"Заявок сохранено: {leads}\nЧерновиков ожидают решения: {pending}")
         return
+    if get_client_state(chat_id) == "citizenship":
+        q = text.lower().replace("ё", "е")
+        if any(k in q for k in ("россия", "рф", "российск", "гражданин рф", "гражданин россии")):
+            clear_client_state(chat_id)
+            send(chat_id, "Для граждан РФ предусмотрена отдельная договор-оферта. Перед оплатой клиент должен ознакомиться с её условиями. Менеджер направит актуальную редакцию: @PropIskaMNG.")
+            if ADMIN_ID:
+                send(ADMIN_ID, f"📄 Клиент выбрал гражданство РФ. Направьте ему оферту для граждан РФ.\nКлиент ID: {chat_id}")
+            return
+        if any(k in q for k in ("иностранец", "иностран", "другая страна", "не рф", "не россия", "другое гражданство")):
+            clear_client_state(chat_id)
+            send(chat_id, "Для иностранных граждан предусмотрена отдельная оферта по миграционному учёту. Перед оплатой клиент должен ознакомиться с её условиями. Менеджер направит актуальную редакцию: @PropIskaMNG.")
+            if ADMIN_ID:
+                send(ADMIN_ID, f"📄 Клиент выбрал иностранное гражданство. Направьте ему оферту по миграционному учёту.\nКлиент ID: {chat_id}")
+            return
+        send(chat_id, "Пожалуйста, уточните: гражданин РФ или иностранный гражданин.")
+        return
+
     is_admin_chat = bool(ADMIN_ID and chat_id == ADMIN_ID)
     if not is_admin_chat:
         save_lead(user, text)
@@ -247,6 +285,11 @@ def handle_message(message):
             logging.error("Lead notification failed for configured TELEGRAM_ADMIN_ID=%s", ADMIN_ID)
     else:
         logging.error("Lead received but TELEGRAM_ADMIN_ID is not configured")
+    q_contract = text.lower().replace("ё", "е")
+    if any(k in q_contract for k in ("договор", "оферта", "пришлите договор", "выслать договор")):
+        set_citizenship_pending(chat_id)
+        send(chat_id, "📄 Чтобы направить правильный договор для ознакомления, уточните гражданство клиента:\n\n🇷🇺 Гражданин РФ\n🌍 Иностранный гражданин")
+        return
     reply = faq_reply(text)
     if not reply:
         reply = ai_text(
