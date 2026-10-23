@@ -206,11 +206,39 @@ def clear_client_state(user_id):
     conn.commit()
     conn.close()
 
+def save_contract_file(kind, file_id, file_name):
+    conn = db()
+    conn.execute("CREATE TABLE IF NOT EXISTS contract_files (kind TEXT PRIMARY KEY, file_id TEXT NOT NULL, file_name TEXT)")
+    conn.execute("INSERT INTO contract_files(kind,file_id,file_name) VALUES(?,?,?) ON CONFLICT(kind) DO UPDATE SET file_id=excluded.file_id, file_name=excluded.file_name",
+                 (kind, file_id, file_name or "договор"))
+    conn.commit()
+    conn.close()
+
+def get_contract_file(kind):
+    conn = db()
+    conn.execute("CREATE TABLE IF NOT EXISTS contract_files (kind TEXT PRIMARY KEY, file_id TEXT NOT NULL, file_name TEXT)")
+    row = conn.execute("SELECT file_id,file_name FROM contract_files WHERE kind=?", (kind,)).fetchone()
+    conn.close()
+    return row
+
 def handle_message(message):
     chat = message.get("chat", {})
     chat_id = str(chat.get("id", ""))
     user = message.get("from", {})
     text = (message.get("text") or "").strip()
+    document = message.get("document")
+    if document and ADMIN_ID and chat_id == ADMIN_ID:
+        caption = (message.get("caption") or "").lower()
+        if any(k in caption for k in ("рф", "россия", "россий")):
+            kind = "rf"
+        elif any(k in caption for k in ("иностранец", "иностран", "миграцион")):
+            kind = "foreign"
+        else:
+            send(chat_id, "Чтобы сохранить договор, отправьте файл с подписью к сообщению: «РФ» или «Иностранцы».")
+            return
+        save_contract_file(kind, document.get("file_id"), document.get("file_name"))
+        send(chat_id, "✅ Договор сохранён. Теперь бот сможет отправлять его клиентам автоматически.")
+        return
     if not text:
         return
     if text.startswith("/id"):
@@ -257,18 +285,24 @@ def handle_message(message):
     if get_client_state(chat_id) == "citizenship":
         q = text.lower().replace("ё", "е")
         if any(k in q for k in ("россия", "рф", "российск", "гражданин рф", "гражданин россии")):
-            clear_client_state(chat_id)
-            send(chat_id, "Для граждан РФ предусмотрена отдельная договор-оферта. Перед оплатой клиент должен ознакомиться с её условиями. Менеджер направит актуальную редакцию: @PropIskaMNG.")
-            if ADMIN_ID:
-                send(ADMIN_ID, f"📄 Клиент выбрал гражданство РФ. Направьте ему оферту для граждан РФ.\nКлиент ID: {chat_id}")
+            kind = "rf"
+            label = "граждан РФ"
+        elif any(k in q for k in ("иностранец", "иностран", "другая страна", "не рф", "не россия", "другое гражданство")):
+            kind = "foreign"
+            label = "иностранных граждан"
+        else:
+            send(chat_id, "Пожалуйста, уточните: гражданин РФ или иностранный гражданин.")
             return
-        if any(k in q for k in ("иностранец", "иностран", "другая страна", "не рф", "не россия", "другое гражданство")):
-            clear_client_state(chat_id)
-            send(chat_id, "Для иностранных граждан предусмотрена отдельная оферта по миграционному учёту. Перед оплатой клиент должен ознакомиться с её условиями. Менеджер направит актуальную редакцию: @PropIskaMNG.")
-            if ADMIN_ID:
-                send(ADMIN_ID, f"📄 Клиент выбрал иностранное гражданство. Направьте ему оферту по миграционному учёту.\nКлиент ID: {chat_id}")
-            return
-        send(chat_id, "Пожалуйста, уточните: гражданин РФ или иностранный гражданин.")
+        clear_client_state(chat_id)
+        contract = get_contract_file(kind)
+        if contract:
+            result = tg("sendDocument", {"chat_id": chat_id, "document": contract["file_id"], "caption": f"📄 Договор-оферта для {label}. Пожалуйста, ознакомьтесь с условиями до оплаты."})
+            if not result.get("ok"):
+                send(chat_id, "Не удалось отправить файл автоматически. Напишите менеджеру @PropIskaMNG — он направит актуальный договор.")
+        else:
+            send(chat_id, "Пока файл договора не загружен в бота. Напишите менеджеру @PropIskaMNG, он направит актуальную редакцию.")
+        if ADMIN_ID:
+            send(ADMIN_ID, f"📄 Клиент выбрал договор для {label}.\nКлиент ID: {chat_id}\nФайл отправлен клиенту: {'да' if contract else 'нет — файл ещё не сохранён'}")
         return
 
     is_admin_chat = bool(ADMIN_ID and chat_id == ADMIN_ID)
